@@ -1,0 +1,7 @@
+bin/ward
+.bundle/
+pkg/
+tmp/
+vendor/bundle
+Gemfile.lock
+coverage/
