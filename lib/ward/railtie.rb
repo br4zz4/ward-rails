@@ -12,5 +12,9 @@ module Ward
     config.after_initialize do
       Ward.boot!
     end
+
+    rake_tasks do
+      load File.expand_path("../tasks/ward.rake", __dir__)
+    end
   end
 end
