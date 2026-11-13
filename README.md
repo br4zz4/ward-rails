@@ -1,13 +1,22 @@
 # ward-rails
 
-Load [ward](https://github.com/br4zz4/ward) secrets into a private in-memory store at boot. Nothing is written to `ENV`, and the app fails fast with an actionable error when the context, a key or the binary is missing.
+Load [ward](https://github.com/br4zz4/ward) secrets into a private in-memory store at boot.
 
 ```ruby
-Ward["RESEND_API_KEY"]              # value from the app context
-Ward.secrets.resend_api_key         # same, method-style
-Ward.fetch("RESEND_API_KEY")        # raises Ward::MissingSecret listing available keys
-Ward["commons:secrets.main.deploy.staging.TF_VAR_api_url"]  # lazy read outside the context
+Ward["RESEND_API_KEY"]                                      # value from the app context
+Ward.secrets.resend_api_key                                 # same, method-style
+Ward["commons:secrets.main.deploy.staging.TF_VAR_api_url"]  # explicit read outside the context
 ```
+
+**Why not env vars?** The app context is loaded once, at boot, into a private frozen store — **nothing is written to `ENV`**. `ENV` is readable by every gem, every child process and most error reporters; that is the cheapest leak path when a process is compromised. Here the leaked surface is a store whose `inspect` shows keys only, and whose values are never echoed in errors.
+
+The app fails fast, with an actionable message, when the context, a vault key or the `ward` binary is missing.
+
+## Requirements
+
+- Rails `>= 8.0, < 9.0`, Ruby `>= 3.2`
+- ward `>= v0.4.0` — the version is pinned by the gem and installed by `bin/rails ward:install`
+- Linux or macOS, `amd64`/`arm64`
 
 ## Installation
 
@@ -16,80 +25,186 @@ Ward["commons:secrets.main.deploy.staging.TF_VAR_api_url"]  # lazy read outside 
 gem "ward-rails", github: "br4zz4/ward-rails"
 ```
 
-Install the pinned `ward` binary (verified against the release checksums):
+Install the pinned binary (sha256 verified against the release's `checksums.txt`):
 
 ```sh
 bin/rails ward:install
 ```
 
-Linux and macOS (`amd64`/`arm64`) are supported. The binary lands in `bin/ward` — bake it into your image build. `WARD_BIN` points at an existing binary instead (e.g. one installed via Homebrew).
+It lands in `bin/ward`. Bake it into the image during the build — do not download at boot.
 
-## Usage
+- `WARD_BIN=/path/to/ward` points the gem at an existing binary (e.g. Homebrew) instead.
+- Resolution order: `config.ward.bin` → `WARD_BIN` → `Rails.root/bin/ward` → `ward` on `PATH`.
 
-`WARD_CONTEXT` is required — it is the scope the app runs in, using the project convention:
+## How it works
 
-```sh
-WARD_CONTEXT=secrets.main.code.production
+```
+boot
+ ├─ initializer: config.ward.dir defaults to Rails.root
+ ├─ after_initialize → Ward.boot!
+ │    ├─ WARD_CONTEXT missing?        → Ward::MissingContext
+ │    ├─ bin/ward missing?            → Ward::BinaryNotFound
+ │    ├─ ward -d <dir> --raw secrets --json <context>
+ │    │    └─ exit != 0 / locked vault / empty scope → KeyUnavailable | LoadFailed
+ │    └─ values frozen into Ward::Store
+ └─ reads: memory only
+
+Ward["vault:path"] (outside the context)
+ └─ ward -d <dir> --raw get --json <path>   # once, then memoized for the process
 ```
 
-Keys resolve like ward: `WARD_KEY_<VAULT>` in the environment, or configure them explicitly:
+Exactly **one subprocess at boot**. Out-of-context reads cost one subprocess each, the first time.
+
+The gem reads the same `.ward/config.yaml` ward uses: `dir` is passed as `-d`, so vault paths, merges and key resolution behave exactly like the CLI.
+
+## Configuration
+
+`config/initializers/ward.rb`:
 
 ```ruby
-# config/initializers/ward.rb
 Rails.application.config.ward.tap do |ward|
   ward.context = ENV["WARD_CONTEXT"]
   ward.keys = {
-    "main" => Rails.application.credentials.ward_main_key, # String = the key itself
-    "commons" => :WARD_KEY_COMMONS                         # Symbol = env var name
+    "main" => Rails.application.credentials.ward_main_key, # String: the key itself
+    "commons" => :WARD_KEY_COMMONS                         # Symbol: env var name, read lazily
   }
   ward.bin = Rails.root.join("bin/ward") # default; WARD_BIN overrides
   ward.on_error = :raise                  # default; :warn boots with an empty store
 end
 ```
 
-Boot behavior:
+| Setting | Default | Accepted |
+|---|---|---|
+| `context` | `ENV["WARD_CONTEXT"]` | scope string, e.g. `secrets.main.code.production` (**required**) |
+| `keys` | `nil` — inherit the process environment | `Hash`: vault name → `String` (key), `Symbol` (env var name), `Proc` (callable) |
+| `bin` | `Rails.root/bin/ward`, then `ward` on `PATH` | path; `WARD_BIN` is checked before the default |
+| `on_error` | `:raise` | `:raise` or `:warn` |
+| `dir` | `Rails.root` | path to the ward project root |
 
-- `WARD_CONTEXT` missing → `Ward::MissingContext`, with an example scope.
-- `bin/ward` missing → `Ward::BinaryNotFound`, pointing at `bin/rails ward:install`.
-- Vault without a key, conflict, or a scope that resolves to nothing → `Ward::LoadFailed` / `Ward::KeyUnavailable`, naming the vault and the key to provide.
-- `on_error = :warn` downgrades all of the above to a warning and an empty store.
+With `keys = nil`, the subprocess inherits the process environment, so `WARD_KEY_<VAULT>` works with no configuration.
 
-Change a secret? `Ward.reload!` in a console, or restart the app.
+## API reference
+
+| Call | Behavior |
+|---|---|
+| `Ward["NAME"]` | Context value; `nil` when absent. A name containing `:` is read lazily as a vault-qualified path (`"commons:secrets.main.deploy.staging.X"`), then memoized. |
+| `Ward.secrets.NAME` | Method-style access to the same context value (`nil` when absent). |
+| `Ward.fetch("NAME")` | Context value, or raises `Ward::MissingSecret` listing the available **key names** (never values). |
+| `Ward.key?("NAME")` / `Ward.keys` | Presence check / key names. |
+| `Ward.reload!` | Re-reads the context from the vault. Use it in a console; there is no automatic reload in dev. |
+| `Ward.booted?` | `true` after a successful boot. |
+| `Ward.configure { \|config\| ... }` | Mutates the configuration (same object as `Rails.application.config.ward`). |
+| `Ward.reset!` | Clears store and configuration — test helpers only. |
+
+Values are strings, duplicated and frozen. There is deliberately **no bulk hash accessor**: you read one secret at a time.
+
+## Scopes and context
+
+Contexts follow the project convention `<module>` → `code` → `<env>`:
+
+```
+secrets.main.code.production
+secrets.<module>.code.<env>
+```
+
+A scope resolves **only the values at that exact node** — ancestors are not inherited, and same-name values across vaults collide (ward refuses to pick a winner). For anything outside the app context, read it explicitly with the vault qualifier:
+
+```ruby
+Ward["commons:secrets.main.deploy.staging.TF_VAR_api_url"]
+```
+
+That works as long as the vault's key is available (`WARD_KEY_COMMONS`, or `config.ward.keys["commons"]`). Missing key → `Ward::KeyUnavailable`, naming the vault and the env var to provide.
+
+## Errors
+
+| Error | When | Fix |
+|---|---|---|
+| `Ward::MissingContext` | `WARD_CONTEXT` empty/absent | Set it for the app process (`WARD_CONTEXT=secrets.main.code.production`) |
+| `Ward::BinaryNotFound` | No executable `ward` found | `bin/rails ward:install`, or set `WARD_BIN` |
+| `Ward::KeyUnavailable` | A needed vault has no key | Provide `WARD_KEY_<VAULT>` or `config.ward.keys[<vault>]` |
+| `Ward::LoadFailed` | ward exited non-zero, bad JSON, or the scope resolved to nothing | Check the scope path and `ward secrets --json <scope>` output |
+| `Ward::MissingSecret` | `Ward.fetch` on an absent key | Fix the name (the error lists available keys) |
+| `Ward::ChecksumMismatch` | Downloaded binary does not match `checksums.txt` | Retry; if it persists, the release asset is wrong — do not bypass |
+| `Ward::DownloadFailed` | Network/HTTP failure during `ward:install` | Retry with network access; or copy an existing binary and set `WARD_BIN` |
+| `Ward::UnsupportedPlatform` | OS/arch without a ward release asset | Install ward manually and set `WARD_BIN` |
+
+`on_error = :warn` downgrades boot-time errors (`MissingContext`, `BinaryNotFound`, `KeyUnavailable`, `LoadFailed`) to a logged warning and an empty store. Errors never include secret values — only exit status and a sanitized stderr line.
 
 ## Security
 
-The threat model is **RCE in the app process**: a compromised process should get as little as possible.
+Threat model: **RCE in the app process**. A compromised process should get as little as possible.
+
+What the gem does:
 
 - Secrets live in a private store — **never in `ENV`**, which every gem and child process can read.
-- Stored values are frozen; `inspect` shows keys only, never values.
-- Only the app context is loaded at boot. Out-of-context reads are lazy and explicit.
-- Keys are injected into the `ward` subprocess only. With `config.ward.keys`, they never enter the app's `ENV`:
+- Values are frozen; `inspect`/`to_s` show keys only; error messages carry no values.
+- Only the app context is loaded at boot. Everything else is explicit and lazy.
+- Keys are injected into the `ward` subprocess only. With `config.ward.keys`, keep them out of the app environment entirely:
 
   ```ruby
+  # config/initializers/ward.rb
   ward.keys = { "main" => Rails.application.credentials.ward_main_key }
-  ENV.delete_if { |name, _| name.start_with?("WARD_KEY_") } # after boot
+  ENV.delete_if { |name, _| name.start_with?("WARD_KEY_") }
   ```
 
-- Errors never include secret values — only exit status and a sanitized stderr.
+  Rails credentials are a good home for the keys: encrypted at rest, decrypted by Rails itself.
 
-Known limits, stated plainly: Ruby cannot zeroize memory (the GC copies strings around). Once a secret is decrypted it exists in process memory until it is garbage-collected — a memory dump after compromise can expose it. Reading lazily vs. memoizing changes little; if memory forensics is in your threat model, the answer is to decrypt outside the app process (sidecar), which is out of scope here.
+Do not:
 
-TOTP secrets are always read with `--raw`: you get the original `otpauth://` value, never a generated 6-digit code. Generate codes with `ROTP` if you need them.
+- copy loaded secrets back into `ENV` for convenience;
+- log `Ward.keys` values or `Ward.secrets` contents;
+- pass keys on the command line — the gem never does; they travel via the subprocess environment only.
 
-## Deployment checklist
+Known limits, stated plainly: Ruby cannot zeroize memory — the GC copies strings and no API erases them. Once a secret is decrypted it exists in process memory until collected, so a memory dump after compromise can expose it. Lazy vs. memoized reads change little; if memory forensics is in your threat model, decrypt outside the app process (sidecar). That is out of scope here.
 
-- [ ] `bin/rails ward:install` runs in the image build (`bin/ward` present at runtime).
+TOTP secrets are always read with `--raw`: you get the original `otpauth://` value, never a generated 6-digit code. Use `ROTP` in the app if you need codes.
+
+## Deployment
+
+```dockerfile
+COPY .ward .ward
+RUN bin/rails ward:install
+ENV WARD_CONTEXT=secrets.main.code.production
+# WARD_KEY_MAIN / WARD_KEY_COMMONS from the secret store at runtime
+```
+
+Checklist:
+
+- [ ] `bin/rails ward:install` runs in the image build (`bin/ward` exists at runtime).
 - [ ] `.ward/config.yaml` and the vault files are in the image (or mounted).
 - [ ] `WARD_CONTEXT` is set for the app process.
 - [ ] Vault keys are available via `WARD_KEY_<VAULT>` or `config.ward.keys`.
+- [ ] Rotation path defined: update the vault, then restart (or run `Ward.reload!`).
+
+## Troubleshooting
+
+**`Ward::MissingContext` on boot** — `WARD_CONTEXT` is not set for this process. Check `env | grep WARD_CONTEXT` in the exact context the app starts (systemd/K8s/Docker each have their own environment).
+
+**`Ward::BinaryNotFound`** — run `bin/rails ward:install`; in images, verify the build step ran and `bin/ward` survived `.dockerignore`.
+
+**`Ward::KeyUnavailable: vault "commons" is locked`** — the vault has encrypted files but no key. Export `WARD_KEY_COMMONS` (value from `ward init`/bootstrap) or add it to `config.ward.keys`. Note that ward **skips** a vault without its key rather than failing — the gem turns "context came back empty" into an error on purpose.
+
+**`Ward::LoadFailed: no secrets resolved for scope ...`** — the scope path does not exist at that depth. Run `ward secrets --json <context>` in the project root to compare. Remember: parent values are not inherited into a deeper scope.
+
+**Conflict error** — two vaults define the same key at the same depth; ward refuses to choose. Rename or remove one value — scope order does not break the tie.
+
+**`Ward::ChecksumMismatch`** — the downloaded asset does not match `checksums.txt`. Do not bypass verification; retry, and if it persists the release is broken (check the ward release page).
+
+**App boot fails only inside an AI agent terminal** — ward refuses `--json` when it detects AI mode (`WARD_AI_MODE=1` or agent env markers like `OPENCODE_*`). That protection is for agents, not for the app: run the app with `WARD_AI_MODE=0`.
+
+**Secret changed but the app still serves the old value** — the store is loaded once. Run `Ward.reload!` (console) or restart the process.
+
+**`Ward["X"]` returns `nil`** — check `Ward.keys`; out-of-context keys need the vault-qualified path (`"vault:path"`), not a bare name.
 
 ## Development
 
 ```sh
 bundle install
-bundle exec rake ward:install
+bundle exec rake ward:install   # or: export WARD_BIN=$(which ward)
 bundle exec rake test
 ```
+
+The suite uses a real `ward` binary (resolved from `WARD_BIN`, `bin/ward`, then `PATH`) and generates throwaway vaults in temp dirs with fake values.
 
 ## License
 
