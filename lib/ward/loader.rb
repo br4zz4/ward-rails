@@ -1,0 +1,164 @@
+require "json"
+require "open3"
+
+require "ward/errors"
+
+module Ward
+  # Runs the ward CLI as a subprocess and maps its JSON output to plain hashes.
+  # Secret values never leave stdout: failure messages are built from the exit
+  # status and a sanitized stderr only.
+  class Loader
+    ANSI = /\e\[[0-9;]*m/
+
+    def initialize(configuration)
+      @configuration = configuration
+    end
+
+    def secrets(scope)
+      stdout, stderr, status = execute("secrets", scope)
+      raise failure(stderr, scope) unless status.success?
+
+      values = parse_object(stdout, scope)
+      raise empty_scope_error(stderr, scope) if values.empty?
+
+      values
+    end
+
+    def value(path)
+      stdout, stderr, status = execute("get", path)
+      raise failure(stderr, path) unless status.success?
+
+      parse_object(stdout, path).fetch("value")
+    rescue KeyError, TypeError
+      raise LoadFailed, "ward returned no value for #{path.inspect}"
+    end
+
+    private
+
+    def execute(command, scope)
+      Open3.capture3(key_env, *argv(command, scope))
+    end
+
+    def argv(command, scope)
+      args = [binary]
+      args += ["-d", @configuration.dir.to_s] if @configuration.dir
+      args + ["--raw", command, "--json", scope]
+    end
+
+    def key_env
+      configured = @configuration.keys
+      return {} if configured.nil?
+
+      configured.each_with_object({}) do |(vault, source), env|
+        value = resolve_key(source)
+        env["WARD_KEY_#{vault.to_s.upcase}"] = value.to_s unless value.nil? || value.to_s.empty?
+      end
+    end
+
+    def resolve_key(source)
+      case source
+      when Symbol then ENV[source.to_s]
+      when Proc then source.call
+      else source
+      end
+    end
+
+    def empty_scope_error(stderr, scope)
+      vault = missing_key_vault(stderr)
+      return KeyUnavailable.new(missing_key_message(vault, scope, stderr)) if vault
+
+      LoadFailed.new(
+        "no secrets resolved for scope #{scope.inspect} — check that the scope path exists " \
+        "in the vault (ward secrets --json #{scope})."
+      )
+    end
+
+    def failure(stderr, scope)
+      vault = missing_key_vault(stderr)
+      return KeyUnavailable.new(missing_key_message(vault, scope, stderr)) if vault
+
+      LoadFailed.new("ward failed reading #{scope.inspect}: #{summarize(stderr)}")
+    end
+
+    def missing_key_vault(stderr)
+      stderr.to_s[/missing key for vault (\S+)/, 1]
+    end
+
+    def missing_key_message(vault, scope, stderr)
+      "vault #{vault.inspect} is locked — provide #{key_env_name(vault)} (env var) or " \
+        "config.ward.keys[#{vault.inspect}] to read #{scope.inspect}. Ward said: #{summarize(stderr)}"
+    end
+
+    def key_env_name(vault)
+      "WARD_KEY_#{vault.upcase}"
+    end
+
+    def summarize(stderr)
+      text = stderr.to_s.gsub(ANSI, "").strip
+      first = text.lines.reject { |line| line.strip.empty? }.last.to_s.strip
+      first = first[0, 400] if first.length > 400
+      first.empty? ? "(no output)" : first
+    end
+
+    def parse_object(stdout, scope)
+      parsed = JSON.parse(stdout.to_s)
+      raise TypeError unless parsed.is_a?(Hash)
+
+      parsed
+    rescue JSON::ParserError, TypeError
+      raise LoadFailed, "ward returned an unexpected payload for #{scope.inspect}"
+    end
+
+    def binary
+      configured = @configuration.bin || ENV["WARD_BIN"]
+      return resolve_explicit(configured) if configured
+
+      found = default_binary
+      return found if found
+
+      raise BinaryNotFound,
+            "ward binary not found (looked for #{default_candidates.join(" and ")}). " \
+            "Run `bin/rails ward:install`, set WARD_BIN to an existing ward, or install ward " \
+            "via your package manager."
+    end
+
+    def resolve_explicit(configured)
+      path = configured.to_s
+      return path if executable?(path)
+
+      raise BinaryNotFound, "ward binary at #{path} is not executable — run `bin/rails ward:install` or fix WARD_BIN."
+    end
+
+    def default_binary
+      default_candidates.each do |candidate|
+        return candidate if executable?(candidate)
+
+        path = which(candidate)
+        return path if path
+      end
+      nil
+    end
+
+    def default_candidates
+      root = @configuration.dir
+      candidates = []
+      candidates << File.join(root.to_s, "bin", "ward") if root
+      candidates << "ward"
+      candidates
+    end
+
+    def executable?(path)
+      !path.to_s.empty? && File.file?(path.to_s) && File.executable?(path.to_s)
+    end
+
+    def which(name)
+      return nil if name.to_s.include?(File::SEPARATOR)
+
+      ENV.fetch("PATH", "").split(File::PATH_SEPARATOR).each do |dir|
+        candidate = File.join(dir, name.to_s)
+        return candidate if File.file?(candidate) && File.executable?(candidate)
+      end
+      nil
+    end
+  end
+end

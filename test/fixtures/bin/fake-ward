@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -n "${FAKE_WARD_ENV_DUMP:-}" ]; then
+  env | grep '^WARD_KEY_' | sort >"$FAKE_WARD_ENV_DUMP" || true
+fi
+
+command=""
+scope=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d) shift ;;
+    --raw | --json) ;;
+    secrets | get) command="$1" ;;
+    *) scope="$1" ;;
+  esac
+  shift
+done
+
+if [ -n "${FAKE_WARD_STDOUT:-}" ]; then
+  printf '%s' "$FAKE_WARD_STDOUT"
+  exit 0
+fi
+
+status="${FAKE_WARD_STATUS:-0}"
+if [ "$status" != "0" ]; then
+  printf '%s\n' "${FAKE_WARD_STDERR:-fake ward failure}" >&2
+  exit "$status"
+fi
+
+case "$command" in
+  secrets) printf '{"RESEND_API_KEY":"fake-value-123"}' ;;
+  get) printf '{"path":"%s","value":"fake-value-123"}' "$scope" ;;
+  *) printf '{}' ;;
+esac
