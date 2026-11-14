@@ -226,6 +226,39 @@ Checklist:
 
 Upgrade flow in an app: bump the gem (new pin) → `bin/rails ward:install` → deploy. Never bump without the suite green — the workflow enforces it.
 
+## Offline and air-gapped builds
+
+Network is needed **only** by `ward:install` (build time) and `ward:update` (maintainer/CI). At runtime the app never touches the network: boot reads the local `.ward` files and executes the local `bin/ward`.
+
+Three ways to build an image without network:
+
+**1. Base image with ward already installed** — nothing to download; resolve via `PATH` or `WARD_BIN`:
+
+```dockerfile
+FROM your-registry/ruby-with-ward:3.4
+ENV WARD_BIN=/usr/local/bin/ward
+```
+
+**2. Vendored release directory, installed from `file://`** — same layout as the GitHub release:
+
+```
+vendor/ward/v0.4.0/ward_linux_amd64.tar.gz
+vendor/ward/v0.4.0/checksums.txt
+```
+
+```dockerfile
+COPY vendor/ward vendor/ward
+RUN WARD_INSTALL_BASE_URL=file:///app/vendor/ward bundle exec rake ward:install
+```
+
+**3. Internal HTTP mirror** — same layout (`v<version>/ward_<os>_<arch>.tar.gz` + `checksums.txt`):
+
+```sh
+WARD_INSTALL_BASE_URL=https://mirror.internal/ward bundle exec rake ward:install
+```
+
+In every case the sha256 is still verified against `checksums.txt`, and the binary must actually run (`ward version`) before it is swapped into `bin/ward` — an offline install is no less strict than an online one.
+
 ## Development
 
 ```sh

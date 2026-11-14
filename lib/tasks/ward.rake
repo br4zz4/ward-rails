@@ -6,7 +6,9 @@ namespace :ward do
   desc "Download the pinned ward binary and install it into bin/ward"
   task :install do
     root = defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root ? ::Rails.root : Dir.pwd
-    target = Ward::Installer.new(root: root).install!
+    base_url = ENV["WARD_INSTALL_BASE_URL"]
+    installer = base_url ? Ward::Installer.new(root: root, base_url: base_url) : Ward::Installer.new(root: root)
+    target = installer.install!
     puts "ward #{Ward::WARD_MIN_VERSION} installed at #{target}"
   end
 
@@ -37,7 +39,9 @@ namespace :ward do
     previous = Ward::Release.bump!(path: version_file, version: version)
     puts(previous == version ? "pinned ward version already #{version}" : "pinned ward version: #{previous} -> #{version}")
 
-    target = Ward::Installer.new(root: root, version: version).install!
+    base_url = ENV["WARD_INSTALL_BASE_URL"]
+    installer = base_url ? Ward::Installer.new(root: root, version: version, base_url: base_url) : Ward::Installer.new(root: root, version: version)
+    target = installer.install!
     puts "ward #{version} installed at #{target}"
   end
 end

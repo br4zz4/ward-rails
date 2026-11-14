@@ -174,6 +174,135 @@ class InstallerTest < Minitest::Test
     end
   end
 
+  def test_install_from_file_url
+    Dir.mktmpdir("ward-installer") do |root|
+      build_release(root)
+      app = File.join(root, "app")
+
+      target = Ward::Installer.new(root: app, base_url: "file://#{root}").install!
+
+      assert_equal File.join(app, "bin", "ward"), target
+      assert_equal BINARY, File.binread(target)
+      assert_equal "755", format("%o", File.stat(target).mode & 0o777)
+    end
+  end
+
+  def test_file_url_still_verifies_checksum
+    Dir.mktmpdir("ward-installer") do |root|
+      build_release(root, checksum: :mismatch)
+      app = File.join(root, "app")
+
+      assert_raises(Ward::ChecksumMismatch) do
+        Ward::Installer.new(root: app, base_url: "file://#{root}").install!
+      end
+
+      refute File.exist?(File.join(app, "bin", "ward"))
+    end
+  end
+
+  def test_file_url_without_release_raises_download_failed
+    Dir.mktmpdir("ward-installer") do |root|
+      app = File.join(root, "app")
+
+      error = assert_raises(Ward::DownloadFailed) do
+        Ward::Installer.new(root: app, base_url: "file://#{root}").install!
+      end
+
+      assert_includes error.message, "missing local release file"
+      assert_includes error.message, "check the release page"
+    end
+  end
+
+  def test_file_url_keeps_plus_literal_in_path
+    Dir.mktmpdir("ward-installer") do |root|
+      release = File.join(root, "repo+branch")
+      FileUtils.mkdir_p(release)
+      build_release(release)
+      app = File.join(root, "app")
+
+      Ward::Installer.new(root: app, base_url: "file://#{release}").install!
+
+      assert_installed_ward(app)
+    end
+  end
+
+  def test_file_url_normalizes_raw_space_in_path
+    Dir.mktmpdir("ward-installer") do |root|
+      release = File.join(root, "My Build")
+      FileUtils.mkdir_p(release)
+      build_release(release)
+      app = File.join(root, "app")
+
+      Ward::Installer.new(root: app, base_url: "file://#{release}").install!
+
+      assert_installed_ward(app)
+    end
+  end
+
+  def test_file_url_accepts_percent_encoded_space
+    Dir.mktmpdir("ward-installer") do |root|
+      release = File.join(root, "My Build")
+      FileUtils.mkdir_p(release)
+      build_release(release)
+      app = File.join(root, "app")
+
+      Ward::Installer.new(root: app, base_url: "file://#{release.gsub(" ", "%20")}").install!
+
+      assert_installed_ward(app)
+    end
+  end
+
+  def test_invalid_url_raises_download_failed
+    Dir.mktmpdir("ward-installer") do |root|
+      app = File.join(root, "app")
+
+      error = assert_raises(Ward::DownloadFailed) do
+        Ward::Installer.new(root: app, base_url: "http://exa mple.com").install!
+      end
+
+      assert_includes error.message, "invalid install URL"
+      refute File.exist?(File.join(app, "bin", "ward"))
+    end
+  end
+
+  def assert_installed_ward(app)
+    target = File.join(app, "bin", "ward")
+    assert_equal BINARY, File.binread(target)
+    assert_equal "755", format("%o", File.stat(target).mode & 0o777)
+    target
+  end
+
+  def test_rake_install_from_file_url_end_to_end
+    Dir.mktmpdir("ward-release") do |release_root|
+      build_release(release_root)
+      repo_bin = File.join(WardTest::ROOT, "bin", "ward")
+      repo_before = File.exist?(repo_bin) ? File.binread(repo_bin) : nil
+
+      Dir.mktmpdir("ward-app") do |app|
+        _stdout, stderr, status = Open3.capture3(
+          {
+            "BUNDLE_GEMFILE" => File.join(WardTest::ROOT, "Gemfile"),
+            "WARD_INSTALL_BASE_URL" => "file://#{release_root}"
+          },
+          "bundle", "exec", "rake", "-f", File.join(WardTest::ROOT, "lib", "tasks", "ward.rake"),
+          "ward:install", chdir: app
+        )
+
+        assert status.success?, stderr
+        target = File.join(app, "bin", "ward")
+        assert File.file?(target), "expected #{target} to exist"
+        assert_equal "755", format("%o", File.stat(target).mode & 0o777)
+        assert_equal BINARY, File.binread(target)
+      end
+
+      if repo_before
+        assert_equal repo_before, File.binread(repo_bin), "the run must not modify #{repo_bin}"
+      else
+        refute File.exist?(repo_bin), "the run must not create #{repo_bin}"
+      end
+    end
+  end
+
   def test_install_is_idempotent
     Dir.mktmpdir("ward-installer") do |root|
       build_release(root)

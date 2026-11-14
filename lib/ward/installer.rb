@@ -70,7 +70,9 @@ module Ward
     def download(url, path, redirects = 0, hint: nil)
       raise DownloadFailed, "too many redirects fetching #{url}" if redirects > 5
 
-      uri = URI.parse(url)
+      uri = parse_url(url, hint)
+      return copy_local(uri, path, hint) if uri.scheme == "file"
+
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         http.request(Net::HTTP::Get.new(uri))
       end
@@ -87,6 +89,30 @@ module Ward
       end
     rescue Timeout::Error, SocketError, SystemCallError => e
       raise DownloadFailed, "failed to download #{url}: #{e.class}"
+    end
+
+    # file:// sources enable air-gapped builds from a vendored release directory
+    # (same layout as the GitHub release: v<version>/ward_<os>_<arch>.tar.gz +
+    # checksums.txt). Checksums are still verified by the caller.
+    def copy_local(uri, path, hint)
+      source = URI::DEFAULT_PARSER.unescape(uri.path)
+      unless File.file?(source)
+        suffix = hint ? " — #{hint}" : ""
+        raise DownloadFailed, "missing local release file #{source}#{suffix}"
+      end
+
+      FileUtils.cp(source, path)
+      path
+    end
+
+    # File paths are not URLs: a raw space (common in CI checkouts) is illegal in
+    # a URI, while "+" is a literal character and must survive unescaping.
+    def parse_url(url, hint)
+      candidate = url.to_s.start_with?("file://") ? url.to_s.gsub(" ", "%20") : url
+      URI.parse(candidate)
+    rescue URI::InvalidURIError
+      suffix = hint ? " — #{hint}" : ""
+      raise DownloadFailed, "invalid install URL #{url.inspect} — percent-encode special characters#{suffix}"
     end
 
     def verify!(tarball, checksums)
