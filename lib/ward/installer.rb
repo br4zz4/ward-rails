@@ -26,7 +26,7 @@ module Ward
       Dir.mktmpdir("ward-install") do |tmp|
         tarball = File.join(tmp, asset)
         checksums = File.join(tmp, "checksums.txt")
-        download(url_for(asset), tarball)
+        download(url_for(asset), tarball, hint: "no #{asset} in ward #{@version} — check the release page")
         download(url_for("checksums.txt"), checksums)
         verify!(tarball, checksums)
         extracted = extract(tarball, tmp)
@@ -67,7 +67,7 @@ module Ward
       "#{@base_url}/v#{@version}/#{name}"
     end
 
-    def download(url, path, redirects = 0)
+    def download(url, path, redirects = 0, hint: nil)
       raise DownloadFailed, "too many redirects fetching #{url}" if redirects > 5
 
       uri = URI.parse(url)
@@ -77,12 +77,13 @@ module Ward
 
       case response
       when Net::HTTPRedirection
-        download(response["location"], path, redirects + 1)
+        download(response["location"], path, redirects + 1, hint: hint)
       when Net::HTTPSuccess
         File.binwrite(path, response.body)
         path
       else
-        raise DownloadFailed, "failed to download #{url} (HTTP #{response.code})"
+        suffix = response.code == "404" && hint ? " — #{hint}" : ""
+        raise DownloadFailed, "failed to download #{url} (HTTP #{response.code})#{suffix}"
       end
     rescue Timeout::Error, SocketError, SystemCallError => e
       raise DownloadFailed, "failed to download #{url}: #{e.class}"

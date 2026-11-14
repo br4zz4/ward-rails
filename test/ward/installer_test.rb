@@ -73,7 +73,9 @@ class InstallerTest < Minitest::Test
     installer = Ward::Installer.new(root: "/tmp/ignored")
 
     with_platform("arm64-darwin23") { assert_equal "ward_darwin_arm64.tar.gz", installer.asset }
+    with_platform("x86_64-darwin22") { assert_equal "ward_darwin_amd64.tar.gz", installer.asset }
     with_platform("x86_64-linux") { assert_equal "ward_linux_amd64.tar.gz", installer.asset }
+    with_platform("x86_64-linux-musl") { assert_equal "ward_linux_amd64.tar.gz", installer.asset }
     with_platform("aarch64-linux") { assert_equal "ward_linux_arm64.tar.gz", installer.asset }
   end
 
@@ -109,6 +111,23 @@ class InstallerTest < Minitest::Test
         assert_raises(Ward::ChecksumMismatch) do
           Ward::Installer.new(root: app, base_url: base_url).install!
         end
+      end
+
+      refute File.exist?(File.join(app, "bin", "ward"))
+    end
+  end
+
+  def test_missing_release_asset_raises_with_hint_and_leaves_no_binary
+    Dir.mktmpdir("ward-installer") do |root|
+      app = File.join(root, "app")
+
+      with_server(root) do |base_url|
+        installer = Ward::Installer.new(root: app, base_url: base_url)
+        error = assert_raises(Ward::DownloadFailed) { installer.install! }
+
+        assert_includes error.message, "HTTP 404"
+        assert_includes error.message, "no #{installer.asset} in ward #{Ward::WARD_MIN_VERSION}"
+        assert_includes error.message, "check the release page"
       end
 
       refute File.exist?(File.join(app, "bin", "ward"))
