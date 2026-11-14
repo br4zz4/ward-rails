@@ -12,6 +12,22 @@ Ward["commons:secrets.main.deploy.staging.TF_VAR_api_url"]  # explicit read outs
 
 The app fails fast, with an actionable message, when the context, a vault key or the `ward` binary is missing.
 
+```sh
+bin/rails ward:doctor   # prints the resolved setup (names only, never values) and flags problems
+```
+
+## Documentation
+
+| Page | Use it when |
+|---|---|
+| [Getting started](docs/getting-started.md) | Adopting the gem, or upgrading from an older revision |
+| [Configuration](docs/configuration.md) | Settings, env vars, precedence, per-scenario examples |
+| [API reference](docs/api.md) | Reading secrets, reload, errors, test helpers |
+| [Deployment](docs/deployment.md) | Docker, Kubernetes, cloud secret stores, offline builds, rotation |
+| [Security](docs/security.md) | Threat model, key custody, ENV hygiene, limits |
+| [Patterns](docs/patterns.md) | Multi-module repos, optional ward, keys in credentials, build steps |
+| [Troubleshooting](docs/troubleshooting.md) | Symptom → cause → fix, error catalog |
+
 ## Requirements
 
 - Rails `>= 8.0, < 9.0`, Ruby `>= 3.2`
