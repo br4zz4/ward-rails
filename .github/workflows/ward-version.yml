@@ -1,0 +1,37 @@
+name: Ward version
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  repository_dispatch:
+    types: [ward-release]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Bump pinned ward version
+        run: bundle exec rake ward:update
+      - name: Run the suite against the new binary
+        run: bundle exec rake test
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/ward-version
+          delete-branch: true
+          title: "chore: bump pinned ward version"
+          commit-message: "chore: bump pinned ward version"
+          body: |
+            Automated bump of `WARD_MIN_VERSION` to the latest
+            [ward release](https://github.com/br4zz4/ward/releases).
+            The suite ran against the downloaded binary before this PR was opened.
+          add-paths: lib/ward/version.rb

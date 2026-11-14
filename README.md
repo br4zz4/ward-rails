@@ -196,6 +196,16 @@ Checklist:
 
 **`Ward["X"]` returns `nil`** — check `Ward.keys`; out-of-context keys need the vault-qualified path (`"vault:path"`), not a bare name.
 
+## Keeping the pin current
+
+`WARD_MIN_VERSION` is the single source of truth for the binary `ward:install` downloads. It moves forward automatically:
+
+- **`rake ward:update`** — queries the latest ward release, rewrites `WARD_MIN_VERSION`, downloads and installs that binary. `WARD_VERSION=0.4.1 bundle exec rake ward:update` targets a specific release. It only runs inside this gem's source tree.
+- **`.github/workflows/ward-version.yml`** — runs weekly, on `workflow_dispatch`, and on the `ward-release` repository dispatch sent by the ward release pipeline. It bumps, runs the whole suite against the new binary, and opens a PR with only `lib/ward/version.rb` changed.
+- **Ward release hook** — ward's `release.yml` sends that dispatch after goreleaser publishes. It needs a fine-grained token (Contents: read/write on `ward-rails`) stored as the `WARD_RAILS_DISPATCH_TOKEN` secret in the ward repo; without it the step is skipped.
+
+Upgrade flow in an app: bump the gem (new pin) → `bin/rails ward:install` → deploy. Never bump without the suite green — the workflow enforces it.
+
 ## Development
 
 ```sh
