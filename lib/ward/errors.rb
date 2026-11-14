@@ -7,6 +7,8 @@ module Ward
 
   class BinaryMismatch < Error; end
 
+  class BinaryOutdated < Error; end
+
   class LoadFailed < Error; end
 
   class MissingSecret < Error; end

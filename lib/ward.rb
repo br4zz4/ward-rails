@@ -27,6 +27,7 @@ module Ward
     def boot!
       raise MissingContext, missing_context_message if context.to_s.strip.empty?
 
+      Loader.new(configuration).verify_version!
       load!
       store
     rescue Error => error

@@ -128,6 +128,45 @@ class LoaderTest < Minitest::Test
     assert_equal({ "RESEND_API_KEY" => "script-value" }, loader.secrets("secrets.main.code.production"))
   end
 
+  def test_verify_version_accepts_the_default_fake_ward
+    # arrange
+    # act
+    result = loader.verify_version!
+
+    # assert
+    assert result
+  end
+
+  def test_verify_version_rejects_outdated_binary_naming_the_minimum
+    # arrange
+    # act
+    error = with_env("FAKE_WARD_VERSION" => "0.3.2") do
+      assert_raises(Ward::BinaryOutdated) { loader.verify_version! }
+    end
+
+    # assert
+    assert_includes error.message, "0.3.2"
+    assert_includes error.message, ">= #{Ward::WARD_MIN_VERSION}"
+  end
+
+  def test_verify_version_raises_mismatch_when_version_command_fails
+    # arrange
+    @config.bin = write_binary("ward-sem-version", "#!/bin/sh\nexit 3\n")
+
+    # act
+    # assert
+    assert_raises(Ward::BinaryMismatch) { loader.verify_version! }
+  end
+
+  def test_verify_version_raises_mismatch_on_unparseable_output
+    # arrange
+    @config.bin = write_binary("ward-lixo", "#!/bin/sh\nprintf 'not a version\\n'\n")
+
+    # act
+    # assert
+    assert_raises(Ward::BinaryMismatch) { loader.verify_version! }
+  end
+
   def write_binary(name, content)
     path = File.join(@dir, name)
     File.binwrite(path, content)
