@@ -4,8 +4,7 @@ module Ward
   class Railtie < ::Rails::Railtie
     config.ward = Ward::Configuration.new
 
-    initializer "ward.configuration" do |app|
-      config.ward.dir ||= app.root
+    initializer "ward.configuration" do |_app|
       Ward.configuration = config.ward
     end
 

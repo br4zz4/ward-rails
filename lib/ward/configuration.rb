@@ -17,5 +17,20 @@ module Ward
 
       @on_error = value
     end
+
+    # The ward project directory (passed to the CLI as -d). Precedence:
+    # explicit config → WARD_DIR env → Rails.root → current directory.
+    def resolved_dir
+      dir || ENV["WARD_DIR"] || rails_root || Dir.pwd
+    end
+
+    private
+
+    def rails_root
+      return nil unless defined?(::Rails) && ::Rails.respond_to?(:root)
+
+      root = ::Rails.root
+      root.nil? || root.to_s.empty? ? nil : root
+    end
   end
 end

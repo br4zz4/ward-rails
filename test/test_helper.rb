@@ -23,10 +23,10 @@ module WardTest
   class << self
     def ward_bin
       @ward_bin ||= begin
-        path = ENV["WARD_BIN"]
+        path = ENV["WARD_EXECUTABLE_PATH"]
         path = File.join(ROOT, "bin", "ward") if path.nil? || path.empty?
         path = which("ward") unless executable?(path)
-        raise "ward binary not found — set WARD_BIN or install ward" unless executable?(path)
+        raise "ward binary not found — set WARD_EXECUTABLE_PATH or install ward" unless executable?(path)
 
         path
       end
@@ -101,5 +101,17 @@ module WardTest
     end
   end
 end
+
+module WardTest::EnvHelpers
+  def with_env(values)
+    saved = ENV.to_h
+    values.each { |name, value| value.nil? ? ENV.delete(name) : ENV[name] = value }
+    yield
+  ensure
+    ENV.replace(saved)
+  end
+end
+
+Minitest::Test.include(WardTest::EnvHelpers)
 
 Minitest.after_run { WardTest.cleanup! }

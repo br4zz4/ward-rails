@@ -27,7 +27,7 @@ class BootTest < Minitest::Test
     require ENV.fetch("DUMMY_ENV")
     before = Ward["RESEND_API_KEY"]
     system(
-      ENV.fetch("WARD_BIN"), "-d", ENV.fetch("WARD_PROJECT_DIR"),
+      ENV.fetch("WARD_EXECUTABLE_PATH"), "-d", ENV.fetch("WARD_DIR"),
       "set", "main:secrets.main.code.production.RESEND_API_KEY", ENV.fetch("NEW_VALUE"),
       out: File::NULL, err: File::NULL
     )
@@ -44,8 +44,8 @@ class BootTest < Minitest::Test
   def base_env(project)
     {
       "DUMMY_ENV" => WardTest::DUMMY_ENV,
-      "WARD_BIN" => WardTest.ward_bin,
-      "WARD_PROJECT_DIR" => project,
+      "WARD_EXECUTABLE_PATH" => WardTest.ward_bin,
+      "WARD_DIR" => project,
       "WARD_AI_MODE" => "0",
       "WARD_ON_ERROR" => "raise"
     }
@@ -81,7 +81,7 @@ class BootTest < Minitest::Test
     project = WardTest.create_project(WardTest.default_secrets)
     env = base_env(project).merge(
       "WARD_CONTEXT" => "secrets.main.code.production",
-      "WARD_GEM_BIN" => File.join(project, "bin", "nao-existe")
+      "WARD_EXECUTABLE_PATH" => File.join(project, "bin", "nao-existe")
     )
 
     _stdout, stderr, status = run_boot(env)
@@ -130,7 +130,7 @@ class BootTest < Minitest::Test
     FileUtils.chmod(0o755, wrapper)
     env = base_env(project).merge(
       "WARD_CONTEXT" => "secrets.main.code.production",
-      "WARD_BIN" => wrapper
+      "WARD_EXECUTABLE_PATH" => wrapper
     )
 
     stdout, stderr, status = run_boot(env, LAZY)

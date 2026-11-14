@@ -51,9 +51,7 @@ module Ward
       raise BinaryNotFound, "ward binary could not be started at #{binary} — run bin/rails ward:install"
     end
     def argv(command, scope)
-      args = [binary]
-      args += ["-d", @configuration.dir.to_s] if @configuration.dir
-      args + ["--raw", command, "--json", scope]
+      [binary, "-d", @configuration.resolved_dir.to_s, "--raw", command, "--json", scope]
     end
 
     def key_env
@@ -131,7 +129,7 @@ module Ward
     end
 
     def binary
-      configured = @configuration.bin || ENV["WARD_BIN"]
+      configured = @configuration.bin || ENV["WARD_EXECUTABLE_PATH"]
       return verified!(resolve_explicit(configured)) if configured
 
       found = default_binary
@@ -139,8 +137,8 @@ module Ward
 
       raise BinaryNotFound,
             "ward binary not found (looked for #{default_candidates.join(" and ")}). " \
-            "Run `bin/rails ward:install`, set WARD_BIN to an existing ward, or install ward " \
-            "via your package manager."
+            "Run `bin/rails ward:install`, set WARD_EXECUTABLE_PATH to an existing ward, or " \
+            "install ward via your package manager."
     end
 
     def verified!(path)
@@ -169,7 +167,7 @@ module Ward
       path = configured.to_s
       return path if executable?(path)
 
-      raise BinaryNotFound, "ward binary at #{path} is not executable — run `bin/rails ward:install` or fix WARD_BIN."
+      raise BinaryNotFound, "ward binary at #{path} is not executable — run `bin/rails ward:install` or fix WARD_EXECUTABLE_PATH."
     end
 
     def default_binary
@@ -183,9 +181,8 @@ module Ward
     end
 
     def default_candidates
-      root = @configuration.dir
       candidates = []
-      candidates << File.join(root.to_s, "bin", "ward") if root
+      candidates << File.join(@configuration.resolved_dir.to_s, "bin", "ward")
       candidates << "ward"
       candidates
     end

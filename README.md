@@ -33,8 +33,9 @@ bin/rails ward:install
 
 It lands in `bin/ward`. Bake it into the image during the build — do not download at boot.
 
-- `WARD_BIN=/path/to/ward` points the gem at an existing binary (e.g. Homebrew) instead.
-- Resolution order: `config.ward.bin` → `WARD_BIN` → `Rails.root/bin/ward` → `ward` on `PATH`.
+- `WARD_EXECUTABLE_PATH=/path/to/ward` points the gem at an existing binary (e.g. Homebrew) instead.
+- Binary resolution order: `config.ward.bin` → `WARD_EXECUTABLE_PATH` → `<project root>/bin/ward` → `ward` on `PATH`.
+- Project directory (passed as `-d`): `config.ward.dir` → `WARD_DIR` → `Rails.root` → current directory.
 
 ## How it works
 
@@ -68,7 +69,7 @@ Rails.application.config.ward.tap do |ward|
     "main" => Rails.application.credentials.ward_main_key, # String: the key itself
     "commons" => :WARD_KEY_COMMONS                         # Symbol: env var name, read lazily
   }
-  ward.bin = Rails.root.join("bin/ward") # default; WARD_BIN overrides
+  ward.bin = Rails.root.join("bin/ward") # default; WARD_EXECUTABLE_PATH overrides
   ward.on_error = :raise                  # default; :warn boots with an empty store
 end
 ```
@@ -77,11 +78,22 @@ end
 |---|---|---|
 | `context` | `ENV["WARD_CONTEXT"]` | scope string, e.g. `secrets.main.code.production` (**required**) |
 | `keys` | `nil` — inherit the process environment | `Hash`: vault name → `String` (key), `Symbol` (env var name), `Proc` (callable) |
-| `bin` | `Rails.root/bin/ward`, then `ward` on `PATH` | path; `WARD_BIN` is checked before the default |
+| `bin` | `<project root>/bin/ward`, then `ward` on `PATH` | path; `WARD_EXECUTABLE_PATH` is checked before the default |
 | `on_error` | `:raise` | `:raise` or `:warn` |
-| `dir` | `Rails.root` | path to the ward project root |
+| `dir` | `WARD_DIR`, then `Rails.root`, then the current directory | path to the ward project root |
 
 With `keys = nil`, the subprocess inherits the process environment, so `WARD_KEY_<VAULT>` works with no configuration.
+
+### Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `WARD_CONTEXT` | Scope the app runs in — **required** (unless `config.ward.context` is set) |
+| `WARD_DIR` | Ward project root, passed to the CLI as `-d` (default: `Rails.root`, then the current directory) |
+| `WARD_EXECUTABLE_PATH` | Path to an existing `ward` binary (default: `<project root>/bin/ward`, then `ward` on `PATH`) |
+| `WARD_KEY_<VAULT>` | Vault encryption keys (one per vault; `config.ward.keys` replaces this) |
+| `WARD_INSTALL_BASE_URL` | Alternate install source for `ward:install` — HTTP mirror or `file://` directory |
+| `WARD_AI_MODE` | Set to `0` to stop ward from treating a terminal as an AI agent (see Troubleshooting) |
 
 ## API reference
 
@@ -120,14 +132,14 @@ That works as long as the vault's key is available (`WARD_KEY_COMMONS`, or `conf
 | Error | When | Fix |
 |---|---|---|
 | `Ward::MissingContext` | `WARD_CONTEXT` empty/absent | Set it for the app process (`WARD_CONTEXT=secrets.main.code.production`) |
-| `Ward::BinaryNotFound` | No executable `ward` found | `bin/rails ward:install`, or set `WARD_BIN` |
+| `Ward::BinaryNotFound` | No executable `ward` found | `bin/rails ward:install`, or set `WARD_EXECUTABLE_PATH` |
 | `Ward::BinaryMismatch` | `bin/ward` exists but the OS cannot run it (built for another OS/arch) | Run `bin/rails ward:install` on this platform — never copy the binary across platforms |
 | `Ward::KeyUnavailable` | A needed vault has no key | Provide `WARD_KEY_<VAULT>` or `config.ward.keys[<vault>]` |
 | `Ward::LoadFailed` | ward exited non-zero, bad JSON, or the scope resolved to nothing | Check the scope path and `ward secrets --json <scope>` output |
 | `Ward::MissingSecret` | `Ward.fetch` on an absent key | Fix the name (the error lists available keys) |
 | `Ward::ChecksumMismatch` | Downloaded binary does not match `checksums.txt` | Retry; if it persists, the release asset is wrong — do not bypass |
-| `Ward::DownloadFailed` | Network/HTTP failure during `ward:install` | Retry with network access; or copy an existing binary and set `WARD_BIN` |
-| `Ward::UnsupportedPlatform` | OS/arch without a ward release asset | Install ward manually and set `WARD_BIN` |
+| `Ward::DownloadFailed` | Network/HTTP failure during `ward:install` | Retry with network access; or copy an existing binary and set `WARD_EXECUTABLE_PATH` |
+| `Ward::UnsupportedPlatform` | OS/arch without a ward release asset | Install ward manually and set `WARD_EXECUTABLE_PATH` |
 
 `on_error = :warn` downgrades boot-time errors (`MissingContext`, `BinaryNotFound`, `KeyUnavailable`, `LoadFailed`) to a logged warning and an empty store. Errors never include secret values — only exit status and a sanitized stderr line.
 
@@ -232,11 +244,11 @@ Network is needed **only** by `ward:install` (build time) and `ward:update` (mai
 
 Three ways to build an image without network:
 
-**1. Base image with ward already installed** — nothing to download; resolve via `PATH` or `WARD_BIN`:
+**1. Base image with ward already installed** — nothing to download; resolve via `PATH` or `WARD_EXECUTABLE_PATH`:
 
 ```dockerfile
 FROM your-registry/ruby-with-ward:3.4
-ENV WARD_BIN=/usr/local/bin/ward
+ENV WARD_EXECUTABLE_PATH=/usr/local/bin/ward
 ```
 
 **2. Vendored release directory, installed from `file://`** — same layout as the GitHub release:
@@ -263,11 +275,11 @@ In every case the sha256 is still verified against `checksums.txt`, and the bina
 
 ```sh
 bundle install
-bundle exec rake ward:install   # or: export WARD_BIN=$(which ward)
+bundle exec rake ward:install   # or: export WARD_EXECUTABLE_PATH=$(which ward)
 bundle exec rake test
 ```
 
-The suite uses a real `ward` binary (resolved from `WARD_BIN`, `bin/ward`, then `PATH`) and generates throwaway vaults in temp dirs with fake values.
+The suite uses a real `ward` binary (resolved from `WARD_EXECUTABLE_PATH`, `bin/ward`, then `PATH`) and generates throwaway vaults in temp dirs with fake values.
 
 ## License
 

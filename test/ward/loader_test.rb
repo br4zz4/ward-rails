@@ -17,14 +17,6 @@ class LoaderTest < Minitest::Test
     Ward::Loader.new(@config)
   end
 
-  def with_env(values)
-    saved = ENV.to_h
-    values.each { |name, value| value.nil? ? ENV.delete(name) : ENV[name] = value }
-    yield
-  ensure
-    ENV.replace(saved)
-  end
-
   def test_secrets_parses_json_object
     assert_equal({ "RESEND_API_KEY" => "fake-value-123" }, loader.secrets("secrets.main.code.production"))
   end
@@ -82,6 +74,32 @@ class LoaderTest < Minitest::Test
     assert_equal "proc-key", received["WARD_KEY_EXTRA"]
     refute ENV.key?("WARD_KEY_MAIN")
     refute ENV.key?("WARD_KEY_EXTRA")
+  end
+
+  def test_binary_falls_back_to_executable_path_env
+    @config.bin = nil
+
+    with_env("WARD_EXECUTABLE_PATH" => WardTest::FAKE_WARD) do
+      assert_equal({ "RESEND_API_KEY" => "fake-value-123" }, loader.secrets("secrets.main.code.production"))
+    end
+  end
+
+  def test_dash_d_uses_ward_dir_when_config_dir_is_nil
+    argv_log = File.join(@dir, "argv.log")
+    wrapper = write_binary("ward-argv-wrapper", <<~SH)
+      #!/bin/sh
+      printf '%s\\n' "$@" > "#{argv_log}"
+      exec "#{WardTest::FAKE_WARD}" "$@"
+    SH
+    @config.dir = nil
+    @config.bin = nil
+
+    with_env("WARD_DIR" => "/tmp/ward-project", "WARD_EXECUTABLE_PATH" => wrapper) do
+      assert_equal({ "RESEND_API_KEY" => "fake-value-123" }, loader.secrets("secrets.main.code.production"))
+    end
+
+    argv = File.readlines(argv_log, chomp: true)
+    assert_equal "/tmp/ward-project", argv[argv.index("-d") + 1]
   end
 
   def test_missing_binary_raises_binary_not_found

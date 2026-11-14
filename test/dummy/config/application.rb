@@ -9,7 +9,5 @@ class DummyApplication < Rails::Application
                   else
                     Logger.new(File::NULL)
                   end
-  config.ward.dir = ENV["WARD_PROJECT_DIR"] if ENV["WARD_PROJECT_DIR"]
-  config.ward.bin = ENV["WARD_GEM_BIN"] if ENV["WARD_GEM_BIN"]
   config.ward.on_error = (ENV["WARD_ON_ERROR"] || "raise").to_sym
 end

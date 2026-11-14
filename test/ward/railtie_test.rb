@@ -14,8 +14,8 @@ class RailtieTest < Minitest::Test
   def self.boot_dummy
     saved = ENV.to_h
     ENV["WARD_ON_ERROR"] = "warn"
-    ENV.delete("WARD_PROJECT_DIR")
-    ENV.delete("WARD_GEM_BIN")
+    ENV.delete("WARD_DIR")
+    ENV.delete("WARD_EXECUTABLE_PATH")
     ENV.delete("WARD_CONTEXT")
     require WardTest::DUMMY_ENV
     Rails.application
@@ -27,8 +27,14 @@ class RailtieTest < Minitest::Test
     assert_instance_of Ward::Configuration, app.config.ward
   end
 
-  def test_config_ward_dir_defaults_to_rails_root
-    assert_equal app.root.to_s, app.config.ward.dir.to_s
+  def test_config_ward_dir_is_nil_by_default
+    assert_nil app.config.ward.dir
+  end
+
+  def test_resolved_dir_defaults_to_rails_root
+    with_env("WARD_DIR" => nil) do
+      assert_equal app.root.to_s, app.config.ward.resolved_dir.to_s
+    end
   end
 
   def test_ward_configuration_is_the_application_config_object
