@@ -200,7 +200,7 @@ Checklist:
 
 `WARD_MIN_VERSION` is the single source of truth for the binary `ward:install` downloads. It moves forward automatically:
 
-- **`rake ward:update`** — queries the latest ward release, rewrites `WARD_MIN_VERSION`, downloads and installs that binary. `WARD_VERSION=0.4.1 bundle exec rake ward:update` targets a specific release. It only runs inside this gem's source tree.
+- **`rake ward:update`** — queries the latest ward release, rewrites `WARD_MIN_VERSION`, downloads and installs that binary. `WARD_VERSION=0.4.1 bundle exec rake ward:update` targets a specific release. It only runs inside this gem's source tree, only accepts stable `x.y.z`, and **never downgrades**: if the latest release is older than the pin, it reports up to date and changes nothing.
 - **`.github/workflows/ward-version.yml`** — runs weekly, on `workflow_dispatch`, and on the `ward-release` repository dispatch sent by the ward release pipeline. It bumps, runs the whole suite against the new binary, and opens a PR with only `lib/ward/version.rb` changed.
 - **Ward release hook** — ward's `release.yml` sends that dispatch after goreleaser publishes. It needs a fine-grained token (Contents: read/write on `ward-rails`) stored as the `WARD_RAILS_DISPATCH_TOKEN` secret in the ward repo; without it the step is skipped.
 

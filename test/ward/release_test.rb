@@ -209,6 +209,20 @@ class ReleaseTest < Minitest::Test
     assert_equal before, File.read(version_file)
   end
 
+  def test_ward_update_skips_downgrade_without_installing
+    before = File.read(version_file)
+
+    stdout, stderr, status = Open3.capture3(
+      { "WARD_VERSION" => "0.0.1" }, "bundle", "exec", "rake", "ward:update", chdir: WardTest::ROOT
+    )
+
+    assert status.success?, stderr
+    assert_includes stdout, "up to date"
+    assert_includes stdout, "latest available: 0.0.1"
+    refute_includes stdout, "installed at"
+    assert_equal before, File.read(version_file)
+  end
+
   def version_file
     File.join(WardTest::ROOT, "lib", "ward", "version.rb")
   end

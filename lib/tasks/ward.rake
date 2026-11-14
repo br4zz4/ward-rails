@@ -23,9 +23,18 @@ namespace :ward do
     end
 
     version = requested.empty? ? Ward::Release.latest : requested
-    abort "invalid ward version #{version.inspect} — expected x.y.z" unless version.match?(/\A\d+\.\d+\.\d+/)
+    unless version.match?(/\A\d+\.\d+\.\d+\z/)
+      abort "invalid ward version #{version.inspect} — expected a stable x.y.z"
+    end
 
-    previous = Ward::Release.bump!(path: File.join(root, "lib", "ward", "version.rb"), version: version)
+    version_file = File.join(root, "lib", "ward", "version.rb")
+    pinned = File.read(version_file)[/WARD_MIN_VERSION = "([^"]+)"/, 1].to_s
+    if !pinned.empty? && Gem::Version.new(version) <= Gem::Version.new(pinned)
+      puts "pinned ward version #{pinned} is up to date (latest available: #{version})"
+      next
+    end
+
+    previous = Ward::Release.bump!(path: version_file, version: version)
     puts(previous == version ? "pinned ward version already #{version}" : "pinned ward version: #{previous} -> #{version}")
 
     target = Ward::Installer.new(root: root, version: version).install!
