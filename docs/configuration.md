@@ -25,6 +25,19 @@ end
 
 Precedence is always **explicit config first, then environment, then the built-in default**. The initializer runs before boot, so anything set there wins.
 
+### Where the binary comes from
+
+The `ward` binary is a **prerequisite**: the gem never downloads it at boot. It is resolved in this order:
+
+| Step | Source | Typical use |
+|---|---|---|
+| 1 | `config.ward.bin` | Explicit path in an initializer |
+| 2 | `WARD_EXECUTABLE_PATH` | Base image, bootstrap, CI |
+| 3 | `<project root>/bin/ward` | **standard project-local install** (gitignored, version pinned per project) |
+| 4 | `ward` on `PATH` | Machine-wide install (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`) |
+
+Once resolved, the gem runs `ward version` **once at boot** and requires `>= #{Ward::WARD_MIN_VERSION}`. An older binary fails with `Ward::BinaryOutdated` — never with an obscure payload error.
+
 ### `keys`
 
 | Value type | Meaning |
@@ -118,6 +131,7 @@ There is no separate validation step. The gem fails where the problem is:
 - missing context → `Ward::MissingContext`
 - missing binary → `Ward::BinaryNotFound`
 - binary for another platform → `Ward::BinaryMismatch`
+- binary older than the gem requires → `Ward::BinaryOutdated`
 - vault without key → `Ward::KeyUnavailable`
 - bad scope, conflict, or empty result → `Ward::LoadFailed`
 

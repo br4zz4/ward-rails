@@ -79,6 +79,7 @@ Clears the store, the boot flag and the configuration. Test helpers only.
 | `Ward::MissingContext` | `WARD_CONTEXT` / `config.ward.context` is empty | Set the scope, e.g. `secrets.main.code.production` |
 | `Ward::BinaryNotFound` | No executable `ward` found, or the configured path is not executable | `bin/rails ward:install` or set `WARD_EXECUTABLE_PATH` |
 | `Ward::BinaryMismatch` | The binary exists but cannot run on this host (other OS/arch) | Reinstall on this platform |
+| `Ward::BinaryOutdated` | Installed ward is older than the gem requires | Upgrade (package manager, or `bin/rails ward:install`) |
 | `Ward::KeyUnavailable` | A needed vault has encrypted files but no key | Provide `WARD_KEY_<VAULT>` or `config.ward.keys[<vault>]` |
 | `Ward::LoadFailed` | ward exited non-zero, returned invalid JSON, or the scope resolved to nothing | Check the scope depth and `ward secrets --json <scope>` |
 | `Ward::MissingSecret` | `Ward.fetch` on an absent key | Fix the name (the error lists available keys) |

@@ -31,7 +31,7 @@ bin/rails ward:doctor   # prints the resolved setup (names only, never values) a
 ## Requirements
 
 - Rails `>= 8.0, < 9.0`, Ruby `>= 3.2`
-- ward `>= v0.4.0` — the version is pinned by the gem and installed by `bin/rails ward:install`
+- `ward >= v0.4.0` **installed** — installation is a prerequisite; the gem verifies the version at boot
 - Linux or macOS, `amd64`/`arm64`
 
 ## Installation
@@ -41,17 +41,25 @@ bin/rails ward:doctor   # prints the resolved setup (names only, never values) a
 gem "ward-rails", github: "br4zz4/ward-rails"
 ```
 
-Install the pinned binary (sha256 verified against the release's `checksums.txt`):
+**Prerequisite: install ward on the machine that runs the app.** The gem resolves it in this order:
+
+| Location | Use |
+|---|---|
+| `config.ward.bin` | explicit path |
+| `WARD_EXECUTABLE_PATH` | base image, bootstrap, CI |
+| `<project root>/bin/ward` | **standard** project-local install (gitignored, pinned per project) |
+| `ward` on `PATH` | machine-wide (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`) |
+
+The gem ships an optional helper for the project-local case — it downloads the pinned asset, verifies sha256 and executes it (`ward version`) before installing:
 
 ```sh
 bin/rails ward:install
 ```
 
-It lands in `bin/ward`. Bake it into the image during the build — do not download at boot.
+Bake it into the image during the build — boot never downloads anything. At boot, `ward version` is checked against `Ward::WARD_MIN_VERSION`; an older binary fails with `Ward::BinaryOutdated`.
 
-- `WARD_EXECUTABLE_PATH=/path/to/ward` points the gem at an existing binary (e.g. Homebrew) instead.
-- Binary resolution order: `config.ward.bin` → `WARD_EXECUTABLE_PATH` → `<project root>/bin/ward` → `ward` on `PATH`.
 - Project directory (passed as `-d`): `config.ward.dir` → `WARD_DIR` → `Rails.root` → current directory.
+- `WARD_DIR` is the **folder**; `WARD_EXECUTABLE_PATH` is the **binary**.
 
 ## How it works
 
@@ -60,7 +68,7 @@ boot
  ├─ initializer: config.ward.dir defaults to Rails.root
  ├─ after_initialize → Ward.boot!
  │    ├─ WARD_CONTEXT missing?        → Ward::MissingContext
- │    ├─ bin/ward missing?            → Ward::BinaryNotFound
+ │    ├─ binary missing (or too old)?            → Ward::BinaryNotFound
  │    ├─ ward -d <dir> --raw secrets --json <context>
  │    │    └─ exit != 0 / locked vault / empty scope → KeyUnavailable | LoadFailed
  │    └─ values frozen into Ward::Store
@@ -150,6 +158,7 @@ That works as long as the vault's key is available (`WARD_KEY_COMMONS`, or `conf
 | `Ward::MissingContext` | `WARD_CONTEXT` empty/absent | Set it for the app process (`WARD_CONTEXT=secrets.main.code.production`) |
 | `Ward::BinaryNotFound` | No executable `ward` found | `bin/rails ward:install`, or set `WARD_EXECUTABLE_PATH` |
 | `Ward::BinaryMismatch` | `bin/ward` exists but the OS cannot run it (built for another OS/arch) | Run `bin/rails ward:install` on this platform — never copy the binary across platforms |
+| `Ward::BinaryOutdated` | Installed ward is older than `Ward::WARD_MIN_VERSION` | Upgrade it (package manager, `brew upgrade ward`, or `bin/rails ward:install`) |
 | `Ward::KeyUnavailable` | A needed vault has no key | Provide `WARD_KEY_<VAULT>` or `config.ward.keys[<vault>]` |
 | `Ward::LoadFailed` | ward exited non-zero, bad JSON, or the scope resolved to nothing | Check the scope path and `ward secrets --json <scope>` output |
 | `Ward::MissingSecret` | `Ward.fetch` on an absent key | Fix the name (the error lists available keys) |

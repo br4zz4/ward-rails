@@ -3,10 +3,13 @@
 The model in one line: **the binary and the vault are build/runtime inputs; the network is needed only when installing.**
 
 ```
-build   → bin/rails ward:install         (platform here, checksum verified)
+prereq  → ward >= Ward::WARD_MIN_VERSION installed (bin/ward, PATH, or WARD_EXECUTABLE_PATH)
+build   → bin/rails ward:install         (optional convenience: platform here, checksum verified)
 image   → bin/ward + .ward/config.yaml + vault files
 runtime → WARD_CONTEXT + keys → boot reads the vault locally → in-memory store
 ```
+
+The gem verifies the binary at boot (`ward version`) and refuses versions below `Ward::WARD_MIN_VERSION` with `Ward::BinaryOutdated`. Installing is your choice — project-local, machine-wide, base image, or the bundled rake helper.
 
 ## Local development
 
