@@ -5,6 +5,8 @@ module Ward
 
   class BinaryNotFound < Error; end
 
+  class BinaryMismatch < Error; end
+
   class LoadFailed < Error; end
 
   class MissingSecret < Error; end

@@ -58,12 +58,12 @@ class InstallerTest < Minitest::Test
     end
   end
 
-  def build_release(root, checksum: :matching)
+  def build_release(root, checksum: :matching, content: BINARY)
     release = File.join(root, "v#{Ward::WARD_MIN_VERSION}")
     FileUtils.mkdir_p(release)
     asset = Ward::Installer.new(root: root).asset
     tarball = File.join(release, asset)
-    write_tarball(tarball, "ward" => BINARY)
+    write_tarball(tarball, "ward" => content)
     digest = checksum == :matching ? Digest::SHA256.hexdigest(File.binread(tarball)) : "0" * 64
     File.write(File.join(release, "checksums.txt"), "#{digest}  #{asset}\n")
     asset
@@ -131,6 +131,46 @@ class InstallerTest < Minitest::Test
       end
 
       refute File.exist?(File.join(app, "bin", "ward"))
+    end
+  end
+
+  def test_binary_that_cannot_run_raises_and_leaves_no_binary
+    Dir.mktmpdir("ward-installer") do |root|
+      build_release(root, content: "garbage-no-magic")
+      app = File.join(root, "app")
+
+      with_server(root) do |base_url|
+        error = assert_raises(Ward::DownloadFailed) do
+          Ward::Installer.new(root: app, base_url: base_url).install!
+        end
+
+        assert_includes error.message, "cannot run on"
+      end
+
+      refute File.exist?(File.join(app, "bin", "ward"))
+    end
+  end
+
+  def test_failed_install_preserves_existing_binary
+    Dir.mktmpdir("ward-installer") do |root|
+      build_release(root, content: "garbage-no-magic")
+      app = File.join(root, "app")
+      bin_dir = File.join(app, "bin")
+      FileUtils.mkdir_p(bin_dir)
+      existing = File.join(bin_dir, "ward")
+      File.binwrite(existing, "#!/bin/sh\necho GOOD\n")
+      FileUtils.chmod(0o755, existing)
+      before = File.binread(existing)
+
+      with_server(root) do |base_url|
+        assert_raises(Ward::DownloadFailed) do
+          Ward::Installer.new(root: app, base_url: base_url).install!
+        end
+      end
+
+      assert_equal before, File.binread(existing)
+      assert_equal "755", format("%o", File.stat(existing).mode & 0o777)
+      refute File.exist?("#{existing}.new")
     end
   end
 

@@ -92,4 +92,32 @@ class LoaderTest < Minitest::Test
     assert_includes error.message, "ward:install"
     assert_includes error.message, "nao-existe"
   end
+
+  def test_foreign_binary_magic_raises_binary_mismatch
+    @config.bin = write_binary("ward-foreign", foreign_magic + "not-my-os")
+
+    error = assert_raises(Ward::BinaryMismatch) { loader.secrets("secrets.main.code.production") }
+
+    assert_includes error.message, RUBY_PLATFORM
+    assert_includes error.message, "ward:install"
+  end
+
+  def test_shebang_binary_is_accepted
+    @config.bin = write_binary(
+      "ward-script", "#!/bin/sh\nprintf '%s' '{\"RESEND_API_KEY\":\"script-value\"}'\n"
+    )
+
+    assert_equal({ "RESEND_API_KEY" => "script-value" }, loader.secrets("secrets.main.code.production"))
+  end
+
+  def write_binary(name, content)
+    path = File.join(@dir, name)
+    File.binwrite(path, content)
+    File.chmod(0o755, path)
+    path
+  end
+
+  def foreign_magic
+    RUBY_PLATFORM.match?(/darwin/) ? "\x7FELF".b : "\xFE\xED\xFA\xCF".b
+  end
 end

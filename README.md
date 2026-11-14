@@ -121,6 +121,7 @@ That works as long as the vault's key is available (`WARD_KEY_COMMONS`, or `conf
 |---|---|---|
 | `Ward::MissingContext` | `WARD_CONTEXT` empty/absent | Set it for the app process (`WARD_CONTEXT=secrets.main.code.production`) |
 | `Ward::BinaryNotFound` | No executable `ward` found | `bin/rails ward:install`, or set `WARD_BIN` |
+| `Ward::BinaryMismatch` | `bin/ward` exists but the OS cannot run it (built for another OS/arch) | Run `bin/rails ward:install` on this platform — never copy the binary across platforms |
 | `Ward::KeyUnavailable` | A needed vault has no key | Provide `WARD_KEY_<VAULT>` or `config.ward.keys[<vault>]` |
 | `Ward::LoadFailed` | ward exited non-zero, bad JSON, or the scope resolved to nothing | Check the scope path and `ward secrets --json <scope>` output |
 | `Ward::MissingSecret` | `Ward.fetch` on an absent key | Fix the name (the error lists available keys) |
@@ -161,16 +162,33 @@ TOTP secrets are always read with `--raw`: you get the original `otpauth://` val
 
 ## Deployment
 
+The binary is **platform-specific and resolved when the command runs**, so a macOS developer and a Linux production app each install their own asset:
+
+```
+dev (macOS)            bin/rails ward:install  → bin/ward (darwin_arm64, gitignored, never committed)
+image build (Linux)    bin/rails ward:install  → bin/ward (linux_amd64, inside the container)
+```
+
+`bin/ward` is gitignored by default. Keep it that way, and keep it out of the Docker build context so a developer's macOS binary can never be copied into a Linux image:
+
+```gitignore
+# .gitignore and .dockerignore
+bin/ward
+```
+
 ```dockerfile
 COPY .ward .ward
-RUN bin/rails ward:install
+RUN bin/rails ward:install   # runs inside the image → downloads the Linux asset
 ENV WARD_CONTEXT=secrets.main.code.production
 # WARD_KEY_MAIN / WARD_KEY_COMMONS from the secret store at runtime
 ```
 
+Multi-arch builds (`docker buildx --platform linux/amd64,linux/arm64`) work per target: the installer runs inside each platform build and picks `linux_amd64` or `linux_arm64` accordingly. `ward:install` verifies the downloaded binary actually executes (`ward version`) before finishing, and boot raises `Ward::BinaryMismatch` if `bin/ward` cannot run on the host — so a stray cross-platform binary fails loudly, never silently.
+
 Checklist:
 
 - [ ] `bin/rails ward:install` runs in the image build (`bin/ward` exists at runtime).
+- [ ] `bin/ward` is in `.gitignore` **and** `.dockerignore` (never commit or copy it across platforms).
 - [ ] `.ward/config.yaml` and the vault files are in the image (or mounted).
 - [ ] `WARD_CONTEXT` is set for the app process.
 - [ ] Vault keys are available via `WARD_KEY_<VAULT>` or `config.ward.keys`.
@@ -181,6 +199,8 @@ Checklist:
 **`Ward::MissingContext` on boot** — `WARD_CONTEXT` is not set for this process. Check `env | grep WARD_CONTEXT` in the exact context the app starts (systemd/K8s/Docker each have their own environment).
 
 **`Ward::BinaryNotFound`** — run `bin/rails ward:install`; in images, verify the build step ran and `bin/ward` survived `.dockerignore`.
+
+**`Ward::BinaryMismatch`, or `Exec format error` / `bad CPU type` in logs** — `bin/ward` was installed on another OS/arch (typically a developer's macOS binary copied into a Linux image through the build context). Run `bin/rails ward:install` inside the target platform or image build, and add `bin/ward` to `.dockerignore`. Never commit the binary.
 
 **`Ward::KeyUnavailable: vault "commons" is locked`** — the vault has encrypted files but no key. Export `WARD_KEY_COMMONS` (value from `ward init`/bootstrap) or add it to `config.ward.keys`. Note that ward **skips** a vault without its key rather than failing — the gem turns "context came back empty" into an error on purpose.
 

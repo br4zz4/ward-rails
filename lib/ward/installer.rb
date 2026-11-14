@@ -1,6 +1,7 @@
 require "digest"
 require "fileutils"
 require "net/http"
+require "open3"
 require "rubygems/package"
 require "tmpdir"
 require "uri"
@@ -29,10 +30,9 @@ module Ward
         download(url_for(asset), tarball, hint: "no #{asset} in ward #{@version} — check the release page")
         download(url_for("checksums.txt"), checksums)
         verify!(tarball, checksums)
-        extracted = extract(tarball, tmp)
+        staged = stage(extract(tarball, tmp))
         target = File.join(bin_dir, "ward")
-        FileUtils.mv(extracted, target)
-        FileUtils.chmod(0o755, target)
+        install_atomically(staged, target)
         target
       end
     end
@@ -120,6 +120,35 @@ module Ward
       output = File.join(dir, "ward")
       File.binwrite(output, entry.read)
       output
+    end
+
+    # The candidate is made executable and run while still in the temp dir, so a
+    # binary that cannot run never becomes bin/ward — and a working binary that
+    # was already there is never overwritten by a broken one.
+    def stage(path)
+      FileUtils.chmod(0o755, path)
+      verify_executes!(path)
+      path
+    end
+
+    def install_atomically(staged, target)
+      pending = "#{target}.new"
+      FileUtils.cp(staged, pending)
+      FileUtils.chmod(0o755, pending)
+      File.rename(pending, target)
+    ensure
+      FileUtils.rm_f(pending)
+    end
+
+    def verify_executes!(path)
+      _stdout, stderr, status = Open3.capture3(path, "version")
+      return if status.success?
+
+      raise DownloadFailed, "downloaded #{asset} but it cannot run on #{RUBY_PLATFORM}: #{stderr.to_s.strip}"
+    rescue Errno::ENOEXEC
+      raise DownloadFailed, "downloaded #{asset} but it cannot run on #{RUBY_PLATFORM} — wrong platform asset?"
+    rescue Errno::ENOENT
+      raise DownloadFailed, "downloaded #{asset} but it cannot be started on #{RUBY_PLATFORM} — wrong platform asset?"
     end
   end
 end

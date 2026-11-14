@@ -10,6 +10,14 @@ module Ward
   class Loader
     ANSI = /\e\[[0-9;]*m/
 
+    # Executable magic bytes used to refuse a binary installed for another OS.
+    MACHO_MAGICS = [
+      "\xFE\xED\xFA\xCE", "\xFE\xED\xFA\xCF",
+      "\xCE\xFA\xED\xFE", "\xCF\xFA\xED\xFE",
+      "\xCA\xFE\xBA\xBE", "\xBE\xBA\xFE\xCA"
+    ].map(&:b).freeze
+    ELF_MAGIC = "\x7FELF".b.freeze
+
     def initialize(configuration)
       @configuration = configuration
     end
@@ -37,8 +45,11 @@ module Ward
 
     def execute(command, scope)
       Open3.capture3(key_env, *argv(command, scope))
+    rescue Errno::ENOEXEC
+      raise BinaryMismatch, mismatch_message
+    rescue Errno::ENOENT
+      raise BinaryNotFound, "ward binary could not be started at #{binary} — run bin/rails ward:install"
     end
-
     def argv(command, scope)
       args = [binary]
       args += ["-d", @configuration.dir.to_s] if @configuration.dir
@@ -89,6 +100,16 @@ module Ward
         "config.ward.keys[#{vault.inspect}] to read #{scope.inspect}. Ward said: #{summarize(stderr)}"
     end
 
+    # The binary exists and is executable but the OS refuses to run it — almost
+    # always a binary installed for another platform (macOS asset in a Linux
+    # image, or vice versa).
+    def mismatch_message(path = nil)
+      location = path ? " at #{path}" : ""
+      "the ward binary#{location} cannot run on this host (#{RUBY_PLATFORM}) — it was " \
+        "probably installed for a different OS/arch. Run bin/rails ward:install on this " \
+        "platform (or during the image build); never commit or copy bin/ward across platforms."
+    end
+
     def key_env_name(vault)
       "WARD_KEY_#{vault.upcase}"
     end
@@ -111,15 +132,37 @@ module Ward
 
     def binary
       configured = @configuration.bin || ENV["WARD_BIN"]
-      return resolve_explicit(configured) if configured
+      return verified!(resolve_explicit(configured)) if configured
 
       found = default_binary
-      return found if found
+      return verified!(found) if found
 
       raise BinaryNotFound,
             "ward binary not found (looked for #{default_candidates.join(" and ")}). " \
             "Run `bin/rails ward:install`, set WARD_BIN to an existing ward, or install ward " \
             "via your package manager."
+    end
+
+    def verified!(path)
+      verify_platform!(path)
+      path
+    end
+
+    # Fails fast when bin/ward was built for another OS/arch (a macOS binary in
+    # a Linux image, or the reverse): the OS would only surface it as an opaque
+    # exec error.
+    def verify_platform!(path)
+      head = File.binread(path, 4).to_s.b
+      return if head.empty? || head.start_with?("#!")
+
+      case RUBY_PLATFORM
+      when /darwin/
+        raise BinaryMismatch, mismatch_message(path) unless MACHO_MAGICS.include?(head)
+      when /linux/
+        raise BinaryMismatch, mismatch_message(path) unless head == ELF_MAGIC
+      end
+    rescue Errno::ENOENT
+      nil
     end
 
     def resolve_explicit(configured)
