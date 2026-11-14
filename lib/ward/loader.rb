@@ -23,6 +23,8 @@ module Ward
     end
 
     def secrets(scope)
+      raise MissingContext, "no scope given — set WARD_CONTEXT" if scope.to_s.strip.empty?
+
       stdout, stderr, status = execute("secrets", scope)
       raise failure(stderr, scope) unless status.success?
 
@@ -33,12 +35,18 @@ module Ward
     end
 
     def value(path)
+      raise LoadFailed, "no secret path given" if path.to_s.strip.empty?
+
       stdout, stderr, status = execute("get", path)
       raise failure(stderr, path) unless status.success?
 
       parse_object(stdout, path).fetch("value")
     rescue KeyError, TypeError
       raise LoadFailed, "ward returned no value for #{path.inspect}"
+    end
+
+    def binary_path
+      binary
     end
 
     private
@@ -50,6 +58,7 @@ module Ward
     rescue Errno::ENOENT
       raise BinaryNotFound, "ward binary could not be started at #{binary} — run bin/rails ward:install"
     end
+
     def argv(command, scope)
       [binary, "-d", @configuration.resolved_dir.to_s, "--raw", command, "--json", scope]
     end

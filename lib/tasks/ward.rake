@@ -1,8 +1,14 @@
 require "ward/version"
 require "ward/installer"
 require "ward/release"
+require "ward/doctor"
 
 namespace :ward do
+  desc "Print the resolved ward setup (no secret values) and flag problems"
+  task :doctor do
+    exit 1 unless Ward::Doctor.new(Ward.configuration).run
+  end
+
   desc "Download the pinned ward binary and install it into bin/ward"
   task :install do
     root = defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root ? ::Rails.root : Dir.pwd
