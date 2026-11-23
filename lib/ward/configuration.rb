@@ -1,6 +1,6 @@
 module Ward
   class Configuration
-    attr_accessor :context, :keys, :bin, :on_error, :dir
+    attr_accessor :context, :keys, :bin, :on_error, :dir, :optional
 
     def initialize
       @context = nil
@@ -8,6 +8,7 @@ module Ward
       @bin = nil
       @on_error = :raise
       @dir = nil
+      @optional = false
     end
 
     def on_error=(value)

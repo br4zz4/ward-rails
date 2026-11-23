@@ -104,6 +104,7 @@ end
 | `keys` | `nil` — inherit the process environment | `Hash`: vault name → `String` (key), `Symbol` (env var name), `Proc` (callable) |
 | `bin` | `<project root>/bin/ward`, then `ward` on `PATH` | path; `WARD_EXECUTABLE_PATH` is checked before the default |
 | `on_error` | `:raise` | `:raise` or `:warn` |
+| `optional` | `false` | `true` boots with an empty store, with no warning and no error, when there is no context. For runtimes whose secrets come from the environment (Cloud Run); a context that is set still loads and still follows `on_error` |
 | `dir` | `WARD_DIR`, then `Rails.root`, then the current directory | path to the ward project root |
 
 With `keys = nil`, the subprocess inherits the process environment, so `WARD_KEY_<VAULT>` works with no configuration.
