@@ -11,11 +11,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -d) shift ;;
     --raw | --json) ;;
-    secrets | get) command="$1" ;;
+    secrets | get | version) command="$1" ;;
     *) scope="$1" ;;
   esac
   shift
 done
+
+if [ "$command" = "version" ]; then
+  printf 'ward version %s\n' "${FAKE_WARD_VERSION:-0.4.1}"
+  exit 0
+fi
 
 if [ -n "${FAKE_WARD_STDOUT:-}" ]; then
   printf '%s' "$FAKE_WARD_STDOUT"

@@ -2,6 +2,7 @@ require "json"
 require "open3"
 
 require "ward/errors"
+require "ward/version"
 
 module Ward
   # Runs the ward CLI as a subprocess and maps its JSON output to plain hashes.
@@ -47,6 +48,25 @@ module Ward
 
     def binary_path
       binary
+    end
+
+    # The installed ward must be new enough for the JSON contract this gem
+    # relies on (secrets/get --json). Runs once at boot and on `ward:doctor`.
+    def verify_version!
+      path = binary_path
+      stdout, _stderr, status = Open3.capture3(path, "version")
+      raise BinaryMismatch, mismatch_message(path) unless status.success?
+
+      match = stdout.to_s.match(/ward version (\d+\.\d+\.\d+)/)
+      raise BinaryMismatch, mismatch_message(path) unless match
+
+      installed = Gem::Version.new(match[1])
+      required = Gem::Version.new(WARD_MIN_VERSION)
+      return true if installed >= required
+
+      raise BinaryOutdated,
+            "ward #{installed} is installed at #{path}, but ward-rails requires >= #{required}. " \
+            "Upgrade it (brew upgrade ward, your package manager, or `bin/rails ward:install`)."
     end
 
     private

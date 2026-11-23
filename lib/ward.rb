@@ -25,14 +25,23 @@ module Ward
     end
 
     def boot!
+      return skip_boot if context.to_s.strip.empty? && configuration.optional
+
       raise MissingContext, missing_context_message if context.to_s.strip.empty?
 
+      Loader.new(configuration).verify_version!
       load!
       store
     rescue Error => error
       raise if configuration.on_error == :raise
 
       log_warning(error)
+      @store = Store.new
+      @booted = false
+      store
+    end
+
+    def skip_boot
       @store = Store.new
       @booted = false
       store

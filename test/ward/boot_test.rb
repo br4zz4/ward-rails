@@ -124,7 +124,7 @@ class BootTest < Minitest::Test
     wrapper = File.join(@tmp, "ward-wrapper")
     File.write(wrapper, <<~SH)
       #!/bin/sh
-      printf 'call\n' >> "#{log}"
+      printf '%s\n' "$*" >> "#{log}"
       exec "#{WardTest.ward_bin}" "$@"
     SH
     FileUtils.chmod(0o755, wrapper)
@@ -138,7 +138,36 @@ class BootTest < Minitest::Test
     assert status.success?, stderr
     assert_includes stdout, 'FIRST="other-value-456"'
     assert_includes stdout, 'SECOND="other-value-456"'
-    assert_equal 2, File.readlines(log).size
+    assert_equal 2, File.readlines(log, chomp: true).count { |call| call != "version" }
+  end
+
+  def test_outdated_binary_fails_boot_naming_the_minimum_version
+    # arrange
+    project = WardTest.create_project(WardTest.default_secrets)
+    env = base_env(project).merge(
+      "WARD_CONTEXT" => "secrets.main.code.production",
+      "WARD_EXECUTABLE_PATH" => outdated_wrapper
+    )
+
+    # act
+    _stdout, stderr, status = run_boot(env)
+
+    # assert
+    refute status.success?
+    assert_includes stderr, "Ward::BinaryOutdated"
+    assert_includes stderr, "requires >= #{Ward::WARD_MIN_VERSION}"
+  end
+
+  def outdated_wrapper
+    @tmp = Dir.mktmpdir("ward-boot-outdated")
+    wrapper = File.join(@tmp, "ward-outdated")
+    File.write(wrapper, <<~SH)
+      #!/bin/sh
+      export FAKE_WARD_VERSION=0.3.2
+      exec "#{WardTest::FAKE_WARD}" "$@"
+    SH
+    FileUtils.chmod(0o755, wrapper)
+    wrapper
   end
 
   def test_reload_rereads_value_after_set

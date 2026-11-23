@@ -2,6 +2,7 @@ require "open3"
 
 require "ward/errors"
 require "ward/loader"
+require "ward/version"
 
 module Ward
   # Prints the resolved ward setup and flags the usual adoption problems with an
@@ -24,6 +25,7 @@ module Ward
 
       begin
         path = loader.binary_path
+        loader.verify_version!
         io.puts "  binary:      #{path} (#{binary_version(path)})"
       rescue Error => error
         problems << error
@@ -79,6 +81,8 @@ module Ward
         "run `bin/rails ward:install` (or point WARD_EXECUTABLE_PATH at an existing ward)"
       when BinaryMismatch
         "bin/ward was installed for another OS/arch — run `bin/rails ward:install` on this host"
+      when BinaryOutdated
+        "upgrade ward to >= #{WARD_MIN_VERSION} (brew upgrade ward, package manager, or `bin/rails ward:install`)"
       when KeyUnavailable
         "provide the vault key via WARD_KEY_<VAULT> or config.ward.keys"
       when LoadFailed

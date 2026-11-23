@@ -8,7 +8,7 @@ This guide takes an existing Rails app to "boots with its ward secrets" and ends
 |---|---|
 | Rails `>= 8.0, < 9.0` | Railtie + `after_initialize` boot |
 | Ruby `>= 3.2` | Rails 8 baseline |
-| `ward >= 0.4.0` | The gem consumes `ward secrets --json` and `ward get --json` |
+| `ward >= 0.4.0` **installed** | The gem consumes `ward secrets --json` and `ward get --json`, and verifies the version at boot. Installation is a prerequisite — see step 2 |
 | Linux or macOS (`amd64`/`arm64`) | Windows is not supported |
 
 The gem pins the ward version it installs (`Ward::WARD_MIN_VERSION`). The pin is the single source of truth for `bin/rails ward:install`.
@@ -28,25 +28,36 @@ Pin a revision in `Gemfile.lock` like any git gem. When you upgrade the gem, rea
 
 **Checkpoint:** `bundle show ward-rails` points at the revision you expect.
 
-## 2. Install the binary before boot
+## 2. Prerequisite: ward installed on the machine
 
-```sh
-bin/rails ward:install
-```
+The gem does **not** install ward by itself. It requires a `ward >= 0.4.0` binary and verifies it at boot (including the version). Install it wherever fits the environment — the gem resolves it in this order:
 
-This downloads the pinned release asset for **the machine running the command**, verifies its sha256 against `checksums.txt`, runs `ward version` to prove it executes, and only then installs it into `bin/ward`.
+| Location | Typical use |
+|---|---|
+| `<project>/bin/ward` | **standard** — project-local, follows the Rails `bin/` convention, gitignored, version pinned per project |
+| `ward` on `PATH` | machine-wide install: `/opt/homebrew/bin/ward` (macOS arm64), `/usr/local/bin/ward` (macOS Intel and Linux), `~/.local/bin/ward` (user scope) |
+| `WARD_EXECUTABLE_PATH` | explicit override: base images, bootstrap scripts, CI |
 
-- In an image build, run it inside the build (the container's platform wins).
-- Keep `bin/ward` out of git **and** out of the Docker build context:
+Ways to install:
+
+- **Project-local (recommended, pinnable)** — the gem ships a helper that downloads the pinned release asset for the machine running the command, verifies its sha256, executes it (`ward version`) and only then installs it into `bin/ward`:
+
+  ```sh
+  bin/rails ward:install
+  ```
+
+  Run it in the image build and/or on the dev machine. `WARD_INSTALL_BASE_URL` points it at a mirror or a `file://` directory.
+- **Machine-wide** — install with your package manager (Homebrew tap or `go install`) and leave `ward` on `PATH`.
+- **Container base image** — bake ward into the image at `/usr/local/bin/ward` and set `WARD_EXECUTABLE_PATH`.
+
+Keep any project-local binary out of git **and** out of the Docker build context:
 
 ```gitignore
 # .gitignore and .dockerignore
 bin/ward
 ```
 
-- Already have ward installed (Homebrew, base image)? Set `WARD_EXECUTABLE_PATH=/usr/local/bin/ward` and skip this step. Alternatively keep `ward` on `PATH`.
-
-**Checkpoint:** `bin/ward version` prints the pinned version.
+**Checkpoint:** `ward version` (or `bin/ward version`) prints `>= 0.4.0`. At boot, an older binary fails with `Ward::BinaryOutdated`, naming the version required by the gem.
 
 ## 3. Set the context
 

@@ -42,6 +42,7 @@ ward -d "$WARD_DIR" secrets --json secrets.<module>.code.<env> | head -c 300
 | `Ward::MissingContext` | No scope configured | Set `WARD_CONTEXT` for the app process — check the process environment, not your shell only |
 | `Ward::BinaryNotFound` | No runnable `ward` found | `bin/rails ward:install`, or set `WARD_EXECUTABLE_PATH` |
 | `Ward::BinaryMismatch` | Binary exists but cannot run here | Installed for another OS/arch — reinstall on this platform |
+| `Ward::BinaryOutdated` | Binary is older than the gem requires | Upgrade: `brew upgrade ward`, package manager, or `bin/rails ward:install` |
 | `Ward::KeyUnavailable` | A vault has encrypted files but no key | Export `WARD_KEY_<VAULT>` or add the vault to `config.ward.keys` |
 | `Ward::LoadFailed` | ward exited non-zero, bad JSON, or empty scope | Check the scope depth with `ward tree`; check conflicts |
 | `Ward::MissingSecret` | `Ward.fetch` on an absent name | Fix the name — the message lists available keys |
@@ -73,6 +74,17 @@ The command boots Rails, so it boots the gem. Either provide context and keys in
 ### `Exec format error`, `bad CPU type`, or `Ward::BinaryMismatch`
 
 `bin/ward` was installed for another platform — typically a macOS binary copied into a Linux image through the build context. Reinstall inside the target build and add `bin/ward` to `.dockerignore`.
+
+### `Ward::BinaryOutdated`
+
+The installed `ward` is older than the version the gem requires (`Ward::WARD_MIN_VERSION`) — usually a machine-wide binary from before the `--json` output existed. Upgrade it:
+
+```sh
+brew upgrade ward                 # machine-wide (or your package manager)
+bin/rails ward:install            # project-local, pinned to the gem's version
+```
+
+Then run `bin/rails ward:doctor` to confirm the version line.
 
 ### Boot fails only inside an AI agent terminal
 

@@ -19,10 +19,10 @@ class DoctorTest < Minitest::Test
     end
   end
 
-  def run_doctor
+  def run_doctor(env = {})
     io = StringIO.new
 
-    with_env("WARD_CONTEXT" => "secrets.main.code.production") do
+    with_env({ "WARD_CONTEXT" => "secrets.main.code.production" }.merge(env)) do
       @result = Ward::Doctor.new(Ward.configuration).run(io)
     end
 
@@ -71,6 +71,20 @@ class DoctorTest < Minitest::Test
     refute @result
     assert_includes output, "BinaryNotFound"
     assert_includes output, "ward:install"
+  end
+
+  def test_outdated_binary_reports_binary_outdated_and_upgrade_hint
+    # arrange
+    configure
+
+    # act
+    output = run_doctor("FAKE_WARD_VERSION" => "0.3.2")
+
+    # assert
+    refute @result
+    assert_includes output, "BinaryOutdated"
+    assert_includes output, "upgrade ward"
+    assert_includes output, ">= #{Ward::WARD_MIN_VERSION}"
   end
 
   def test_rake_lists_ward_doctor_task
